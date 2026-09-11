@@ -1,10 +1,7 @@
 import { Link, useNavigate } from 'react-router-dom';
-import axios from "axios";
 import VirementAction from "./virements/VirementAction";
+import { useUser } from "@clerk/clerk-react";
 import {
-  CreditCard,
-  PiggyBank,
-  Wallet,
   Plus,
   TrendingUp,
   TrendingDown,
@@ -17,32 +14,43 @@ interface Compte {
   id: string;
   nomCompte: string;
   typeCompte: string;
-  montant: number; // ✅ nombre
+  montant: number;
   numCard: string;
 }
 
 const Comptes = () => {
   const navigate = useNavigate();
+  const { user } = useUser(); // ✅ récupère l'utilisateur connecté
+  const userId = user?.id;
+  const role = user?.publicMetadata?.role || "user";
+
   const [comptes, setComptes] = useState<Compte[]>([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     const fetchComptes = async () => {
+      if (!userId) return; // ⚠️ attendre que Clerk charge l'utilisateur
+
       try {
-        const response = await fetch('http://localhost:8080/comptes', {
-          method: 'GET',
-          headers: { 'Content-Type': 'application/json' },
-        });
+        const response = await fetch(
+          `http://localhost:8080/comptes?userId=${userId}&role=${role}`,
+          {
+            method: 'GET',
+            headers: { 'Content-Type': 'application/json' },
+          }
+        );
 
         const data = await response.json();
 
-        // ✅ convertir montant en nombre
-        const comptesFormatted = data.map((c: any) => ({
-          ...c,
-          montant: parseFloat(c.montant),
-        }));
-
-        setComptes(comptesFormatted);
+        if (Array.isArray(data)) {
+          const comptesFormatted = data.map((c: any) => ({
+            ...c,
+            montant: parseFloat(c.montant),
+          }));
+          setComptes(comptesFormatted);
+        } else {
+          console.error("Réponse inattendue :", data);
+        }
       } catch (error) {
         console.error('Erreur lors de la récupération des comptes :', error);
       } finally {
@@ -51,14 +59,13 @@ const Comptes = () => {
     };
 
     fetchComptes();
-  }, []);
+  }, [userId, role]); // ✅ relancer quand Clerk charge l'utilisateur
 
   // 🔹 Calculs dynamiques
   const soldeTotal = comptes.reduce((acc, c) => acc + c.montant, 0);
   const comptesActifs = comptes.length;
 
-  // ⚠️ Revenus/Dépenses : à calculer via transactions (GET /virements)
-  const revenusMois = 4078.4; 
+  const revenusMois = 4078.4;
   const depensesMois = 379.28;
 
   const summary = [
@@ -119,7 +126,7 @@ const Comptes = () => {
           {loading ? (
             <p>Chargement des comptes...</p>
           ) : (
-            comptes.map(({ id, nomCompte, typeCompte, montant, numCard }) => (
+            comptes.map(({ id, nomCompte, typeCompte, montant, numCard}) => (
               <div key={id} className="account-card">
                 <div className="account-card-glow" />
                 <div className="account-card-top">

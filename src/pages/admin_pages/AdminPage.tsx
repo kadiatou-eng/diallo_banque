@@ -30,34 +30,46 @@ import axios from "axios";
    ============================================================ */
 interface Compte {
   id: number;
-  nom: string;
-  type: string;
+  nomCompte: string;
+  typeCompte: string;
   solde: number;
+  user?: User; // relation optionnelle
 }
+
+
 
 
 interface Pret {
   id: number;
-  client: string;
   montant: number;
-  duree: number;
-  statut: 'pending' | 'approved' | 'rejected';
+  statut: 'APPROUVE' | 'EN_ATTENTE' | 'REJETE';
+  user?: User; // relation optionnelle
+  duree?: number; // seulement si tu veux gérer une durée côté frontend
 }
+
+
 
 interface Transaction {
   id: number;
-  client: string;
-  type: 'deposit' | 'withdraw' | 'payment';
   montant: number;
-  date: string;
+  createdAt: string;
+  typeTransaction: 'DEPOT' | 'RETRAIT' | 'PAIEMENT';
+  compte: Compte;
+  user?: User;
 }
+
+
 
 interface User {
   id: number;
-  nom: string;
+  userId: string;
   email: string;
-  role: 'admin' | 'user';
+  role: string; // ADMIN / CLIENT / etc.
+  nom?: string;
+  prenom?: string;
 }
+
+
 
 type Section =
   | 'dashboard'
@@ -106,14 +118,16 @@ function formatEuro(value: number): string {
   }).format(value);
 }
 
-function initials(name: string): string {
+function initials(name?: string): string {
+  if (!name || typeof name !== "string") return "??"; // valeur par défaut
   return name
-    .split(' ')
+    .split(" ")
     .map((w) => w[0])
     .slice(0, 2)
-    .join('')
+    .join("")
     .toUpperCase();
 }
+
 
 /* ============================================================
    NAVIGATION CONFIG
@@ -155,44 +169,45 @@ export default function AdminPage() {
 
   /* ---- Data loading depuis le backend ---- */
   const loadComptes = useCallback(async () => {
-    try {
-      const data = await apiFetch<Compte[]>('/comptes');
-      setComptes(data);
-    } catch (err) {
-      console.error('Erreur chargement comptes:', err);
-      setError("Impossible de charger les comptes depuis le serveur.");
-    }
-  }, []);
+  try {
+    const data = await apiFetch<Compte[]>('/comptes/all');
+    setComptes(data);
+  } catch (err) {
+    console.error('Erreur chargement comptes:', err);
+    setError("Impossible de charger les comptes depuis le serveur.");
+  }
+}, []);
 
-  const loadPrets = useCallback(async () => {
-    try {
-      const data = await apiFetch<Pret[]>('/prets');
-      setPrets(data);
-    } catch (err) {
-      console.error('Erreur chargement prêts:', err);
-      setError("Impossible de charger les prêts depuis le serveur.");
-    }
-  }, []);
+const loadPrets = useCallback(async () => {
+  try {
+    const data = await apiFetch<Pret[]>('/prets/all');
+    setPrets(data);
+  } catch (err) {
+    console.error('Erreur chargement prêts:', err);
+    setError("Impossible de charger les prêts depuis le serveur.");
+  }
+}, []);
 
-  const loadTransactions = useCallback(async () => {
-    try {
-      const data = await apiFetch<Transaction[]>('/transactions');
-      setTransactions(data);
-    } catch (err) {
-      console.error('Erreur chargement transactions:', err);
-      setError("Impossible de charger les transactions depuis le serveur.");
-    }
-  }, []);
+const loadTransactions = useCallback(async () => {
+  try {
+    const data = await apiFetch<Transaction[]>('/transactions/all');
+    setTransactions(data);
+  } catch (err) {
+    console.error('Erreur chargement transactions:', err);
+    setError("Impossible de charger les transactions depuis le serveur.");
+  }
+}, []);
 
-  const loadUsers = useCallback(async () => {
-    try {
-      const data = await apiFetch<User[]>('/users');
-      setUsers(data);
-    } catch (err) {
-      console.error('Erreur chargement utilisateurs:', err);
-      setError("Impossible de charger les utilisateurs depuis le serveur.");
-    }
-  }, []);
+const loadUsers = useCallback(async () => {
+  try {
+    const data = await apiFetch<User[]>('/users/all');
+    setUsers(data);
+  } catch (err) {
+    console.error('Erreur chargement utilisateurs:', err);
+    setError("Impossible de charger les utilisateurs depuis le serveur.");
+  }
+}, []);
+
 
   useEffect(() => {
     const loadAll = async () => {
@@ -205,20 +220,20 @@ export default function AdminPage() {
   }, [loadComptes, loadPrets, loadTransactions, loadUsers]);
 
   /* ---- CRUD: Comptes ---- */
-  const [newCompte, setNewCompte] = useState({ nom: '', type: 'Courant', solde: '' });
+  const [newCompte, setNewCompte] = useState({ nomCompte: '', typeCompte: 'Courant', solde: '' });
 
   const handleAddCompte = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!newCompte.nom || !newCompte.solde) return;
+    if (!newCompte.nomCompte || !newCompte.solde) return;
     const payload = {
-      nom: newCompte.nom,
-      type: newCompte.type,
+      nomCompte: newCompte.nomCompte,
+      type: newCompte.typeCompte,
       solde: parseFloat(newCompte.solde),
     };
     try {
       const created = await apiSend<Compte>('/comptes', 'POST', payload);
       setComptes((prev) => [...prev, created]);
-      setNewCompte({ nom: '', type: 'Courant', solde: '' });
+      setNewCompte({ nomCompte: '', typeCompte: 'Courant', solde: '' });
     } catch (err) {
       console.error('Erreur ajout compte:', err);
       setError("Échec de l'ajout du compte.");
@@ -235,16 +250,21 @@ export default function AdminPage() {
     }
   };
 
-  /* ---- CRUD: Prêts ---- */
-  const handlePretAction = async (id: number, statut: 'approved' | 'rejected') => {
-    try {
-      const updated = await apiSend<Pret>(`/prets/${id}`, 'PATCH', { statut });
-      setPrets((prev) => prev.map((p) => (p.id === id ? { ...p, ...updated } : p)));
-    } catch (err) {
-      console.error('Erreur mise à jour prêt:', err);
-      setError('Échec de la mise à jour du prêt.');
-    }
-  };
+      /* ---- CRUD: Prêts ---- */
+      const handlePretAction = async (id: number, statut: 'APPROUVE' | 'REJETE'): Promise<void> => {
+        try {
+          const updated = await apiSend<Pret>(`/prets/${id}`, 'PATCH', { statut });
+
+          setPrets((prev) =>
+            prev.map((p) => (p.id === id ? { ...p, ...updated } : p))
+          );
+        } catch (err) {
+          console.error('Erreur mise à jour prêt:', err);
+          setError('Échec de la mise à jour du prêt.');
+        }
+};
+
+
 
   /* ---- CRUD: Users ---- */
   const handleChangeRole = async (id: number) => {
@@ -270,11 +290,16 @@ export default function AdminPage() {
     }
   };
 
+  
   /* ---- Derived stats ---- */
-  const comptesActifs = comptes.length;
-  const volumeTransactions = transactions.reduce((sum, t) => sum + Math.abs(t.montant), 0);
-  const pretsEnCours = prets.filter((p) => p.statut === 'pending').length;
-  const alertes = prets.filter((p) => p.statut === 'pending').length + users.filter((u) => u.role === 'user').length;
+ /* ---- Derived stats ---- */
+const comptesActifs = comptes.length;
+const volumeTransactions = transactions.reduce((sum, t) => sum + Math.abs(t.montant), 0);
+const pretsEnCours = prets.filter((p) => p.statut === 'EN_ATTENTE').length;
+const alertes =
+  prets.filter((p) => p.statut === 'EN_ATTENTE').length +
+  users.filter((u) => u.role === 'user').length;
+
 
   return (
     <div className="admin-layout">
@@ -353,13 +378,14 @@ export default function AdminPage() {
               )}
 
               {section === 'comptes' && (
-                <ComptesSection
-                  comptes={comptes}
-                  newCompte={newCompte}
-                  setNewCompte={setNewCompte}
-                  onAdd={handleAddCompte}
-                  onDelete={handleDeleteCompte}
-                />
+             <ComptesSection
+                comptes={comptes}
+                newCompte={newCompte}
+                setNewCompte={setNewCompte}
+                onAdd={handleAddCompte}
+                onDelete={handleDeleteCompte}
+              />
+
               )}
 
               {section === 'prets' && (
@@ -440,7 +466,7 @@ function Dashboard({
           <table className="admin-table">
             <thead>
               <tr>
-                <th className="admin-th">Client</th>
+                <th className="admin-th">Compte</th>
                 <th className="admin-th">Type</th>
                 <th className="admin-th">Montant</th>
                 <th className="admin-th">Date</th>
@@ -451,20 +477,20 @@ function Dashboard({
                 <tr key={t.id}>
                   <td className="admin-td">
                     <div className="admin-cell-name">
-                      <span className="admin-cell-avatar">{initials(t.client)}</span>
-                      {t.client}
+                      <span className="admin-cell-avatar">{initials(t.compte?.nomCompte ?? "")}</span>
+                      {t.compte?.nomCompte ?? "—"}
                     </div>
                   </td>
                   <td className="admin-td">
-                    <span className={`tx-badge ${t.type}`}>
-                      {t.type === 'deposit' ? 'Dépôt' : t.type === 'withdraw' ? 'Retrait' : 'Paiement'}
+                    <span className={`tx-badge ${t.typeTransaction}`}>
+                      {t.typeTransaction === 'DEPOT' ? 'Dépôt' : t.typeTransaction === 'RETRAIT' ? 'Retrait' : 'Paiement'}
                     </span>
                   </td>
-                  <td className={`admin-td tx-amount ${t.type}`}>
-                    {t.type === 'deposit' ? '+' : '−'}
+                  <td className={`admin-td tx-amount ${t.typeTransaction}`}>
+                    {t.typeTransaction === 'DEPOT' ? '+' : '−'}
                     {formatEuro(t.montant)}
                   </td>
-                  <td className="admin-td muted">{t.date}</td>
+                  <td className="admin-td muted">{t.createdAt}</td>
                 </tr>
               ))}
             </tbody>
@@ -474,6 +500,7 @@ function Dashboard({
     </div>
   );
 }
+
 
 /* ============================================================
    COMPTES SECTION
@@ -486,58 +513,38 @@ function ComptesSection({
   onDelete,
 }: {
   comptes: Compte[];
-  newCompte: { nom: string; type: string; solde: string };
-  setNewCompte: React.Dispatch<React.SetStateAction<{ nom: string; type: string; solde: string }>>;
+  newCompte: { nomCompte: string; typeCompte: string; solde: string };
+  setNewCompte: React.Dispatch<React.SetStateAction<{ nomCompte: string; typeCompte: string; solde: string }>>;
   onAdd: (e: React.FormEvent) => void;
   onDelete: (id: number) => void;
 }) {
   return (
     <div>
-      {/* Add form */}
-      <form className="admin-form-inline" onSubmit={onAdd}>
-        <div className="form-group" style={{ marginBottom: 0 }}>
-          <label className="form-label">Nom du compte</label>
-          <input
-            type="text"
-            className="form-input"
-            placeholder="Ex: Compte Vacances"
-            value={newCompte.nom}
-            onChange={(e) => setNewCompte((p) => ({ ...p, nom: e.target.value }))}
-            required
-          />
-        </div>
-        <div className="form-group" style={{ marginBottom: 0 }}>
-          <label className="form-label">Type</label>
-          <select
-            className="form-select"
-            value={newCompte.type}
-            onChange={(e) => setNewCompte((p) => ({ ...p, type: e.target.value }))}
-          >
-            <option value="Courant">Courant</option>
-            <option value="Épargne">Épargne</option>
-            <option value="Wallet">Wallet</option>
-          </select>
-        </div>
-        <div className="form-group" style={{ marginBottom: 0 }}>
-          <label className="form-label">Solde (€)</label>
-          <input
-            type="number"
-            className="form-input"
-            placeholder="0,00"
-            min="0"
-            step="0.01"
-            value={newCompte.solde}
-            onChange={(e) => setNewCompte((p) => ({ ...p, solde: e.target.value }))}
-            required
-          />
-        </div>
-        <button type="submit" className="btn-primary" style={{ whiteSpace: 'nowrap' }}>
-          <Plus size={18} />
-          Ajouter
-        </button>
+      {/* Formulaire d’ajout */}
+      <form onSubmit={onAdd} className="admin-form">
+        <input
+          type="text"
+          placeholder="Nom du compte"
+          value={newCompte.nomCompte}
+          onChange={(e) => setNewCompte({ ...newCompte, nomCompte: e.target.value })}
+        />
+        <select
+          value={newCompte.typeCompte}
+          onChange={(e) => setNewCompte({ ...newCompte, typeCompte: e.target.value })}
+        >
+          <option value="Courant">Courant</option>
+          <option value="Épargne">Épargne</option>
+        </select>
+        <input
+          type="number"
+          placeholder="Solde initial"
+          value={newCompte.solde}
+          onChange={(e) => setNewCompte({ ...newCompte, solde: e.target.value })}
+        />
+        <button type="submit">Ajouter</button>
       </form>
 
-      {/* Table */}
+      {/* Tableau des comptes */}
       <div className="admin-table-wrap">
         <div className="admin-table-scroll">
           <table className="admin-table">
@@ -553,23 +560,11 @@ function ComptesSection({
               {comptes.length > 0 ? (
                 comptes.map((c) => (
                   <tr key={c.id}>
-                    <td className="admin-td">
-                      <div className="admin-cell-name">
-                        <span className="admin-cell-avatar">
-                          <CreditCard size={15} />
-                        </span>
-                        {c.nom}
-                      </div>
-                    </td>
-                    <td className="admin-td muted">{c.type}</td>
-                    <td className="admin-td" style={{ color: 'var(--gold)', fontWeight: 600, fontFamily: 'Courier New, monospace' }}>
-                      {formatEuro(c.solde)}
-                    </td>
+                    <td className="admin-td">{c.nomCompte}</td>
+                    <td className="admin-td">{c.typeCompte}</td>
+                    <td className="admin-td">{formatEuro(c.solde)}</td>
                     <td className="admin-td">
                       <div className="admin-row-actions" style={{ justifyContent: 'flex-end' }}>
-                        <button className="admin-action-btn" title="Modifier">
-                          <Pencil size={15} />
-                        </button>
                         <button
                           className="admin-action-btn danger"
                           title="Supprimer"
@@ -594,6 +589,8 @@ function ComptesSection({
   );
 }
 
+
+
 /* ============================================================
    PRETS SECTION
    ============================================================ */
@@ -602,7 +599,7 @@ function PretsSection({
   onAction,
 }: {
   prets: Pret[];
-  onAction: (id: number, statut: 'approved' | 'rejected') => void;
+  onAction: (id: number, statut: 'APPROUVE' | 'REJETE') => void;
 }) {
   return (
     <div className="admin-table-wrap">
@@ -612,7 +609,7 @@ function PretsSection({
             <tr>
               <th className="admin-th">Client</th>
               <th className="admin-th">Montant</th>
-              <th className="admin-th">Durée</th>
+              <th className="admin-th">Durée (mois)</th>
               <th className="admin-th">Statut</th>
               <th className="admin-th" style={{ textAlign: 'right' }}>Actions</th>
             </tr>
@@ -623,48 +620,55 @@ function PretsSection({
                 <tr key={p.id}>
                   <td className="admin-td">
                     <div className="admin-cell-name">
-                      <span className="admin-cell-avatar">{initials(p.client)}</span>
-                      {p.client}
+                      <span className="admin-cell-avatar">{initials(p.user?.nom ?? "")}</span>
+                      {p.user?.nom ?? "—"}
                     </div>
                   </td>
-                  <td className="admin-td" style={{ color: 'var(--gold)', fontWeight: 600, fontFamily: 'Courier New, monospace' }}>
-                    {formatEuro(p.montant)}
-                  </td>
-                  <td className="admin-td muted">{p.duree} mois</td>
+                  <td className="admin-td">{formatEuro(p.montant)}</td>
+                  <td className="admin-td">{p.duree ?? "—"}</td>
                   <td className="admin-td">
-                    <span className={`admin-status ${p.statut}`}>
-                      {p.statut === 'pending' ? 'En attente' : p.statut === 'approved' ? 'Approuvé' : 'Rejeté'}
+                    <span
+                      className="admin-status"
+                      style={
+                        p.statut === 'APPROUVE'
+                          ? { background: 'rgba(38,249,94,0.12)', color: 'var(--green)' }
+                          : p.statut === 'REJETE'
+                          ? { background: 'rgba(249,38,38,0.12)', color: 'var(--red)' }
+                          : { background: 'rgba(255,255,255,0.06)', color: 'var(--gray)' }
+                      }
+                    >
+                      {p.statut === 'APPROUVE'
+                        ? 'Approuvé'
+                        : p.statut === 'REJETE'
+                        ? 'Rejeté'
+                        : 'En attente'}
                     </span>
                   </td>
                   <td className="admin-td">
-                    {p.statut === 'pending' ? (
+                    {p.statut === 'EN_ATTENTE' && (
                       <div className="admin-row-actions" style={{ justifyContent: 'flex-end' }}>
                         <button
-                          className="admin-btn-sm approve"
-                          onClick={() => onAction(p.id, 'approved')}
+                          className="admin-action-btn"
+                          title="Approuver"
+                          onClick={() => onAction(p.id, 'APPROUVE')}
                         >
-                          <Check size={14} />
-                          Approuver
+                          ✔
                         </button>
                         <button
-                          className="admin-btn-sm reject"
-                          onClick={() => onAction(p.id, 'rejected')}
+                          className="admin-action-btn danger"
+                          title="Rejeter"
+                          onClick={() => onAction(p.id, 'REJETE')}
                         >
-                          <XCircle size={14} />
-                          Rejeter
+                          ✖
                         </button>
                       </div>
-                    ) : (
-                      <span className="admin-td muted" style={{ textAlign: 'right', display: 'block', fontSize: '0.82rem' }}>
-                        Traité
-                      </span>
                     )}
                   </td>
                 </tr>
               ))
             ) : (
               <tr>
-                <td colSpan={5} className="admin-empty">Aucune demande de prêt.</td>
+                <td colSpan={5} className="admin-empty">Aucun prêt.</td>
               </tr>
             )}
           </tbody>
@@ -674,17 +678,23 @@ function PretsSection({
   );
 }
 
+
+
 /* ============================================================
-   TRANSACTIONS SECTION
+  TRANSACTIONS SECTION
    ============================================================ */
-function TransactionsSection({ transactions }: { transactions: Transaction[] }) {
+function TransactionsSection({
+  transactions,
+}: {
+  transactions: Transaction[];
+}) {
   return (
     <div className="admin-table-wrap">
       <div className="admin-table-scroll">
         <table className="admin-table">
           <thead>
             <tr>
-              <th className="admin-th">Client</th>
+              <th className="admin-th">Compte</th>
               <th className="admin-th">Type</th>
               <th className="admin-th">Montant</th>
               <th className="admin-th">Date</th>
@@ -696,25 +706,34 @@ function TransactionsSection({ transactions }: { transactions: Transaction[] }) 
                 <tr key={t.id}>
                   <td className="admin-td">
                     <div className="admin-cell-name">
-                      <span className="admin-cell-avatar">{initials(t.client)}</span>
-                      {t.client}
+                      <span className="admin-cell-avatar">
+                        {initials(t.compte?.nomCompte ?? "")}
+                      </span>
+                      {t.compte?.nomCompte ?? "—"}
                     </div>
                   </td>
                   <td className="admin-td">
-                    <span className={`tx-badge ${t.type}`}>
-                      {t.type === 'deposit' ? 'Dépôt' : t.type === 'withdraw' ? 'Retrait' : 'Paiement'}
+                    <span className={`tx-badge ${t.typeTransaction}`}>
+                      {t.typeTransaction === "DEPOT"
+                        ? "Dépôt"
+                        : t.typeTransaction === "RETRAIT"
+                        ? "Retrait"
+                        : "Paiement"}
                     </span>
                   </td>
-                  <td className={`admin-td tx-amount ${t.type}`}>
-                    {t.type === 'deposit' ? '+' : '−'}
+                  <td className={`admin-td tx-amount ${t.typeTransaction}`}>
+                    {t.typeTransaction === "DEPOT" ? "+" : "−"}
                     {formatEuro(t.montant)}
                   </td>
-                  <td className="admin-td muted">{t.date}</td>
+                  {/* ✅ Utiliser dateCreation (backend) au lieu de createdAt */}
+                  <td className="admin-td muted">{t.createdAt}</td>
                 </tr>
               ))
             ) : (
               <tr>
-                <td colSpan={4} className="admin-empty">Aucune transaction.</td>
+                <td colSpan={4} className="admin-empty">
+                  Aucune transaction.
+                </td>
               </tr>
             )}
           </tbody>
@@ -724,8 +743,9 @@ function TransactionsSection({ transactions }: { transactions: Transaction[] }) 
   );
 }
 
+
 /* ============================================================
-   USERS SECTION
+  USERS SECTION
    ============================================================ */
 function UsersSection({
   users,
@@ -742,7 +762,9 @@ function UsersSection({
         <table className="admin-table">
           <thead>
             <tr>
+              <th className="admin-th">User ID</th>
               <th className="admin-th">Nom</th>
+              <th className="admin-th">Prénom</th>
               <th className="admin-th">Email</th>
               <th className="admin-th">Rôle</th>
               <th className="admin-th" style={{ textAlign: 'right' }}>Actions</th>
@@ -754,28 +776,30 @@ function UsersSection({
                 <tr key={u.id}>
                   <td className="admin-td">
                     <div className="admin-cell-name">
-                      <span className="admin-cell-avatar">{initials(u.nom)}</span>
-                      {u.nom}
+                      <span className="admin-cell-avatar"> {initials(`${u.nom ?? ""} ${u.prenom ?? ""}`)}</span>{u.userId}
+
                     </div>
                   </td>
+                  <td className="admin-td">{u.nom ?? "—"}</td>
+                  <td className="admin-td">{u.prenom ?? "—"}</td>
                   <td className="admin-td muted">{u.email}</td>
                   <td className="admin-td">
                     <span
                       className="admin-status"
                       style={
-                        u.role === 'admin'
+                        u.role === 'ADMIN'
                           ? { background: 'rgba(249,168,38,0.12)', color: 'var(--gold)' }
                           : { background: 'rgba(255,255,255,0.06)', color: 'var(--gray)' }
                       }
                     >
-                      {u.role === 'admin' ? 'Admin' : 'Utilisateur'}
+                      {u.role === 'ADMIN' ? 'Admin' : 'Client'}
                     </span>
                   </td>
                   <td className="admin-td">
                     <div className="admin-row-actions" style={{ justifyContent: 'flex-end' }}>
                       <button
                         className="admin-action-btn"
-                        title={u.role === 'admin' ? 'Rétrograder' : 'Promouvoir'}
+                        title={u.role === 'ADMIN' ? 'Rétrograder en Client' : 'Promouvoir en Admin'}
                         onClick={() => onChangeRole(u.id)}
                       >
                         <Shield size={15} />
@@ -793,7 +817,7 @@ function UsersSection({
               ))
             ) : (
               <tr>
-                <td colSpan={4} className="admin-empty">Aucun utilisateur.</td>
+                <td colSpan={6} className="admin-empty">Aucun utilisateur.</td>
               </tr>
             )}
           </tbody>
@@ -803,8 +827,9 @@ function UsersSection({
   );
 }
 
+
 /* ============================================================
-   PARAMETRES SECTION
+   PARAMÈTRES SECTION
    ============================================================ */
 function ParametresSection() {
   const [notifEmail, setNotifEmail] = useState(true);
@@ -812,44 +837,52 @@ function ParametresSection() {
   const [autoApprove, setAutoApprove] = useState(false);
   const [maintenance, setMaintenance] = useState(false);
 
-  const toggles1 = [
-    { label: 'Notifications email', value: notifEmail, setter: setNotifEmail },
-    { label: 'Authentification à deux facteurs', value: twoFA, setter: setTwoFA },
-  ];
-
-  const toggles2 = [
-    { label: 'Approbation automatique des prêts', value: autoApprove, setter: setAutoApprove },
-    { label: 'Mode maintenance', value: maintenance, setter: setMaintenance },
+  // ✅ Factorisation des toggles
+  const toggles = [
+    {
+      group: "Sécurité",
+      items: [
+        { label: "Notifications email", value: notifEmail, setter: setNotifEmail },
+        { label: "Authentification à deux facteurs", value: twoFA, setter: setTwoFA },
+      ],
+    },
+    {
+      group: "Système",
+      items: [
+        { label: "Approbation automatique des prêts", value: autoApprove, setter: setAutoApprove },
+        { label: "Mode maintenance", value: maintenance, setter: setMaintenance },
+      ],
+    },
   ];
 
   return (
     <div className="admin-settings-grid">
-      <div className="admin-settings-card">
-        <h3>Sécurité</h3>
-        {toggles1.map((t) => (
-          <div key={t.label} className="admin-toggle-row">
-            <span className="admin-toggle-label">{t.label}</span>
-            <Toggle on={t.value} onClick={() => t.setter(!t.value)} />
-          </div>
-        ))}
-      </div>
-
-      <div className="admin-settings-card">
-        <h3>Système</h3>
-        {toggles2.map((t) => (
-          <div key={t.label} className="admin-toggle-row">
-            <span className="admin-toggle-label">{t.label}</span>
-            <Toggle on={t.value} onClick={() => t.setter(!t.value)} />
-          </div>
-        ))}
-      </div>
+      {toggles.map((group) => (
+        <div key={group.group} className="admin-settings-card">
+          <h3>{group.group}</h3>
+          {group.items.map((t) => (
+            <div key={t.label} className="admin-toggle-row">
+              <span className="admin-toggle-label">{t.label}</span>
+              <Toggle on={t.value} onClick={() => t.setter(!t.value)} />
+            </div>
+          ))}
+        </div>
+      ))}
     </div>
   );
 }
 
+/* ============================================================
+   TOGGLE COMPONENT
+   ============================================================ */
 function Toggle({ on, onClick }: { on: boolean; onClick: () => void }) {
   return (
-    <button className={`admin-switch ${on ? 'on' : ''}`} onClick={onClick} aria-label="Toggle">
+    <button
+      className={`admin-switch ${on ? "on" : ""}`}
+      onClick={onClick}
+      aria-pressed={on}
+      aria-label={on ? "Désactiver" : "Activer"}
+    >
       <span className="admin-switch-knob" />
     </button>
   );
